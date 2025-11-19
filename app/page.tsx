@@ -1,65 +1,142 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import Editor from "@monaco-editor/react";
+import { Loader2, Play, Github, Search } from "lucide-react";
+import { useCompletion } from "@ai-sdk/react";
+import FileTree from "@/components/FileTree"; // Import the new component
 
 export default function Home() {
+  const [repoUrl, setRepoUrl] = useState("SasithDuleepa/portfolio");
+  const [fileTree, setFileTree] = useState<any[]>([]);
+  const [code, setCode] = useState("// Select a file to view code");
+  const [currentPath, setCurrentPath] = useState("");
+  const [isLoadingTree, setIsLoadingTree] = useState(false);
+
+  // AI Hook
+  const { complete, completion, isLoading: isAiLoading } = useCompletion({
+    api: "/api/generate",
+    onFinish: (_, result) => setCode(result),
+    onError: (e) => alert(e.message)
+  });
+
+  // 1. Fetch the Repo Structure (Tree)
+  const fetchRepoTree = async () => {
+    if (!repoUrl.includes("/")) return alert("Invalid format. Use owner/repo");
+    setIsLoadingTree(true);
+    try {
+      const [owner, repo] = repoUrl.split("/");
+      const res = await fetch(`/api/github/tree?owner=${owner}&repo=${repo}`);
+      const data = await res.json();
+      if (data.tree) setFileTree(data.tree);
+    } catch (err) {
+      alert("Failed to load repo");
+    }
+    setIsLoadingTree(false);
+  };
+
+  // 2. Fetch Specific File Content (When clicked in Tree)
+  const selectFile = async (path: string) => {
+    setCurrentPath(path);
+    const [owner, repo] = repoUrl.split("/");
+    // Encode path safely
+    const res = await fetch(`/api/github?owner=${owner}&repo=${repo}&path=${encodeURIComponent(path)}`);
+    const data = await res.json();
+    if (data.content) setCode(data.content);
+  };
+
+  const handleAiEdit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const prompt = formData.get("prompt") as string;
+    if (!prompt) return;
+    await complete(prompt, { body: { code } });
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+    <div className="flex h-screen bg-neutral-900 text-white overflow-hidden">
+      
+      {/* Sidebar: File Explorer */}
+      <div className="w-64 flex flex-col border-r border-neutral-800 bg-neutral-950">
+        <div className="p-4 border-b border-neutral-800">
+          <div className="flex items-center gap-2 bg-neutral-900 p-2 rounded border border-neutral-800">
+            <Github className="h-4 w-4 text-neutral-400" />
+            <input 
+              className="bg-transparent outline-none w-full text-sm" 
+              value={repoUrl} 
+              onChange={(e) => setRepoUrl(e.target.value)} 
+              onKeyDown={(e) => e.key === "Enter" && fetchRepoTree()}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+          </div>
+          <button 
+            onClick={fetchRepoTree}
+            disabled={isLoadingTree}
+            className="mt-2 w-full flex justify-center items-center gap-2 bg-blue-700 hover:bg-blue-600 text-xs py-2 rounded font-medium transition"
           >
-            Documentation
-          </a>
+            {isLoadingTree ? <Loader2 className="animate-spin h-3 w-3"/> : "Load Repo"}
+          </button>
         </div>
-      </main>
+        
+        <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-neutral-700">
+          {fileTree.length > 0 ? (
+             <FileTree files={fileTree} onSelect={selectFile} />
+          ) : (
+            <div className="text-center text-neutral-600 text-sm mt-10">No files loaded</div>
+          )}
+        </div>
+      </div>
+
+      {/* Main Area: Editor & AI */}
+      <div className="flex flex-1 flex-col min-w-0">
+        {/* File Tab Header */}
+        <div className="h-10 bg-neutral-900 border-b border-neutral-800 flex items-center px-4 text-sm text-neutral-400">
+           {currentPath || "No file selected"}
+        </div>
+
+        <div className="flex flex-1 overflow-hidden">
+          <div className="flex-1 relative">
+            <Editor
+              height="100%"
+              defaultLanguage="typescript"
+              theme="vs-dark"
+              path={currentPath} // Helps Monaco infer language
+              value={isAiLoading ? completion : code}
+              onChange={(val) => setCode(val || "")}
+              options={{ minimap: { enabled: false }, fontSize: 14, scrollBeyondLastLine: false }}
+            />
+             {isAiLoading && (
+              <div className="absolute top-4 right-4 bg-blue-600/90 text-xs px-2 py-1 rounded animate-pulse shadow-lg z-10">
+                AI Generating...
+              </div>
+            )}
+          </div>
+
+          {/* AI Sidebar */}
+          <div className="w-80 bg-neutral-900 border-l border-neutral-800 flex flex-col">
+            <div className="p-4 border-b border-neutral-800">
+              <h2 className="font-semibold text-neutral-200 flex items-center gap-2">
+                <Play className="h-4 w-4 text-green-500" /> AI Editor
+              </h2>
+            </div>
+            <div className="p-4 flex-1 flex flex-col gap-4">
+              <form onSubmit={handleAiEdit} className="flex flex-col gap-3 h-full">
+                <textarea
+                  name="prompt"
+                  className="flex-1 w-full rounded bg-neutral-800 border border-neutral-700 p-3 text-sm focus:outline-none focus:border-blue-500 resize-none"
+                  placeholder="Describe changes..."
+                />
+                <button 
+                  type="submit" 
+                  disabled={isAiLoading || !currentPath}
+                  className="w-full py-2 bg-green-700 hover:bg-green-600 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  Apply Edits
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
